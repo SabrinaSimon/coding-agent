@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "build",
+      "group": "build",
+      "label": "npm: build",
+      "detail": "Bundle the extension with esbuild",
+      "problemMatcher": []
+    },
+    {
+      "type": "npm",
+      "script": "watch",
+      "group": "build",
+      "label": "npm: watch",
+      "detail": "Watch and rebuild on file changes",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

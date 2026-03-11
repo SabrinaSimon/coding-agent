@@ -12,6 +12,8 @@
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
   "icon": "assets/icon.png",
+  "extensionDependencies": [],
+  "extensionKind": ["workspace"],
   "contributes": {
     "commands": [
       {
@@ -114,9 +116,14 @@
       "properties": {
         "codingAgent.provider": {
           "type": "string",
-          "default": "anthropic",
-          "enum": ["anthropic", "openai"],
-          "description": "LLM provider to use"
+          "default": "copilot",
+          "enum": ["copilot", "anthropic", "openai"],
+          "enumDescriptions": [
+            "GitHub Copilot via VSCode Language Model API — no API key needed",
+            "Anthropic Claude (requires API key)",
+            "OpenAI GPT-4o (requires API key)"
+          ],
+          "description": "LLM provider. Use 'copilot' to leverage your existing GitHub Copilot subscription with no extra API key."
         },
         "codingAgent.model": {
           "type": "string",
