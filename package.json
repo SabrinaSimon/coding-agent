@@ -1,0 +1,204 @@
+{
+  "name": "coding-agent",
+  "displayName": "Coding Agent",
+  "description": "Enterprise-grade AI coding agent that replaces a developer — reads, writes, debugs, and ships code autonomously.",
+  "version": "1.0.0",
+  "publisher": "coding-agent",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["AI", "Other"],
+  "keywords": ["ai", "agent", "coding", "claude", "llm", "developer"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "icon": "assets/icon.png",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codingAgent.openChat",
+        "title": "Open Coding Agent",
+        "category": "Coding Agent",
+        "icon": "$(robot)"
+      },
+      {
+        "command": "codingAgent.newSession",
+        "title": "New Session",
+        "category": "Coding Agent"
+      },
+      {
+        "command": "codingAgent.clearHistory",
+        "title": "Clear History",
+        "category": "Coding Agent"
+      },
+      {
+        "command": "codingAgent.insertAtCursor",
+        "title": "Insert Code at Cursor",
+        "category": "Coding Agent"
+      },
+      {
+        "command": "codingAgent.explainSelection",
+        "title": "Explain Selected Code",
+        "category": "Coding Agent"
+      },
+      {
+        "command": "codingAgent.fixSelection",
+        "title": "Fix Selected Code",
+        "category": "Coding Agent"
+      },
+      {
+        "command": "codingAgent.configureApiKey",
+        "title": "Configure API Key",
+        "category": "Coding Agent"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "codingAgent.openChat",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
+      },
+      {
+        "command": "codingAgent.explainSelection",
+        "key": "ctrl+shift+e",
+        "mac": "cmd+shift+e",
+        "when": "editorHasSelection"
+      },
+      {
+        "command": "codingAgent.fixSelection",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "editorHasSelection"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "codingAgent.explainSelection",
+          "when": "editorHasSelection",
+          "group": "codingAgent@1"
+        },
+        {
+          "command": "codingAgent.fixSelection",
+          "when": "editorHasSelection",
+          "group": "codingAgent@2"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "codingAgent.newSession",
+          "when": "view == codingAgentChat",
+          "group": "navigation"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codingAgent",
+          "title": "Coding Agent",
+          "icon": "$(robot)"
+        }
+      ]
+    },
+    "views": {
+      "codingAgent": [
+        {
+          "type": "webview",
+          "id": "codingAgentChat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Coding Agent",
+      "properties": {
+        "codingAgent.provider": {
+          "type": "string",
+          "default": "anthropic",
+          "enum": ["anthropic", "openai"],
+          "description": "LLM provider to use"
+        },
+        "codingAgent.model": {
+          "type": "string",
+          "default": "claude-sonnet-4-6",
+          "description": "Model ID to use (e.g. claude-sonnet-4-6, gpt-4o)"
+        },
+        "codingAgent.maxTokens": {
+          "type": "number",
+          "default": 8192,
+          "description": "Maximum tokens per response"
+        },
+        "codingAgent.autoApproveReads": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-approve file read operations"
+        },
+        "codingAgent.autoApproveWrites": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve file write operations (risky)"
+        },
+        "codingAgent.autoApproveBash": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve bash command execution (risky)"
+        },
+        "codingAgent.contextLines": {
+          "type": "number",
+          "default": 200,
+          "description": "Lines of context to include around selections"
+        },
+        "codingAgent.enableMemory": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable persistent memory across sessions"
+        },
+        "codingAgent.memoryFile": {
+          "type": "string",
+          "default": "AGENTS.md",
+          "description": "File name for project-level agent memory"
+        },
+        "codingAgent.telemetry": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable anonymous usage telemetry"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "build:webview": "cd webview-ui && npm run build",
+    "dev": "concurrently \"npm run watch\" \"npm run build:webview -- --watch\"",
+    "lint": "eslint src --ext ts",
+    "test": "jest",
+    "package": "vsce package",
+    "vscode:prepublish": "npm run build && npm run build:webview"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.0",
+    "openai": "^4.47.0",
+    "better-sqlite3": "^9.4.3",
+    "tiktoken": "^1.0.15",
+    "ignore": "^5.3.1",
+    "minimatch": "^9.0.4",
+    "micromatch": "^4.0.7",
+    "marked": "^12.0.0",
+    "highlight.js": "^11.9.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "@types/better-sqlite3": "^7.6.8",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "concurrently": "^8.2.2",
+    "esbuild": "^0.21.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "@vscode/vsce": "^2.24.0"
+  }
+}
