@@ -12,8 +12,10 @@
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
   "icon": "assets/icon.png",
-  "extensionDependencies": [],
-  "extensionKind": ["workspace"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/coding-agent/coding-agent"
+  },
   "contributes": {
     "commands": [
       {
