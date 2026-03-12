@@ -741,6 +741,10 @@ ul,ol{padding-left:18px}
 .provider-badge{font-size:10px;border-radius:3px;padding:1px 6px;font-weight:600;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
 .add-btn-row{display:flex;justify-content:center;padding-top:4px}
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:var(--vscode-scrollbarSlider-background);border-radius:3px}
+#init-banner{display:none;padding:12px;background:var(--vscode-inputValidation-warningBackground,#3a2d00);border-bottom:1px solid var(--vscode-inputValidation-warningBorder,#b89500);font-size:12px;flex-shrink:0}
+#init-banner.show{display:block}
+#init-banner .init-msg{margin-bottom:8px;white-space:pre-wrap;word-break:break-word}
+#init-banner .init-actions{display:flex;gap:6px;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -749,6 +753,13 @@ ul,ol{padding-left:18px}
   <div class="tab" data-tab="docs" id="tab-docs">📎 Docs</div>
   <div class="tab" data-tab="repos" id="tab-repos">🔗 Repos</div>
   <div class="tab" data-tab="jira" id="tab-jira">📋 Jira</div>
+</div>
+<div id="init-banner">
+  <div class="init-msg" id="init-banner-msg"></div>
+  <div class="init-actions">
+    <button class="btn" id="configure-key-btn">Configure API Key</button>
+    <button class="btn btn-sec" id="retry-init-btn">Retry</button>
+  </div>
 </div>
 <div id="status-bar"></div>
 <div class="tab-panel active" id="panel-chat">
@@ -878,6 +889,13 @@ document.getElementById('repo-list').addEventListener('click', function(e) {
 
 // ── Jira tab ──────────────────────────────────────────────────────────────────
 document.getElementById('add-jira-btn').addEventListener('click', function(){ vscode.postMessage({ type: 'addJiraConnection' }); });
+
+// ── Init banner ───────────────────────────────────────────────────────────────
+document.getElementById('configure-key-btn').addEventListener('click', function(){ vscode.postMessage({ type: 'openConfigureApiKey' }); });
+document.getElementById('retry-init-btn').addEventListener('click', function(){
+  document.getElementById('init-banner').classList.remove('show');
+  vscode.postMessage({ type: 'retryInit' });
+});
 // Event delegation for Test/Remove in jira-list
 document.getElementById('jira-list').addEventListener('click', function(e) {
   var btn = e.target.closest('[data-action]');
@@ -1017,6 +1035,19 @@ window.addEventListener('message', function(ev) {
     case 'prefillInput':
       document.getElementById('user-input').value = m.text;
       document.getElementById('user-input').focus();
+      break;
+    case 'initError': {
+      var banner = document.getElementById('init-banner');
+      document.getElementById('init-banner-msg').textContent = '⚠ ' + m.error + '\n\nRun "Coding Agent: Configure API Key" from the Command Palette (Ctrl+Shift+P).';
+      banner.classList.add('show');
+      break;
+    }
+    case 'initPending':
+      setStatus('Coding Agent initializing...');
+      break;
+    case 'initOk':
+      document.getElementById('init-banner').classList.remove('show');
+      setStatus('Coding Agent ready');
       break;
   }
 });

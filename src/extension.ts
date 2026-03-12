@@ -154,6 +154,8 @@ async function openChatWithPrompt(prompt: string): Promise<void> {
 class LazyViewProvider implements vscode.WebviewViewProvider {
   private inner?: ChatViewProvider;
   private currentView?: vscode.WebviewView;
+  private initState: 'pending' | 'ok' | 'failed' = 'pending';
+  private pendingError?: string;
 
   constructor(
     private context: vscode.ExtensionContext,
@@ -185,13 +187,26 @@ class LazyViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = buildChatHtml(nonce);
 
     // ② Register message handler immediately — forwards to inner once ready.
-    //    This ensures no messages are dropped during async init.
     webviewView.webview.onDidReceiveMessage((msg) => {
       if (this.inner) {
         this.inner.handleMessagePublic(msg);
+        return;
       }
-      // Messages arriving before init completes are intentionally dropped;
-      // the 'ready' handshake is re-triggered via syncAll() once init finishes.
+      // When the webview JS loads it sends 'ready'. Use this to (re)send any
+      // stored error — the postMessage in initAsync may have raced the JS load.
+      if (msg.type === 'ready') {
+        if (this.initState === 'failed' && this.pendingError) {
+          webviewView.webview.postMessage({ type: 'initError', error: this.pendingError });
+        } else if (this.initState === 'pending') {
+          webviewView.webview.postMessage({ type: 'initPending' });
+        }
+      } else if (msg.type === 'retryInit') {
+        this.initState = 'pending';
+        this.pendingError = undefined;
+        this.initAsync(webviewView);
+      } else if (msg.type === 'openConfigureApiKey') {
+        vscode.commands.executeCommand('codingAgent.configureApiKey');
+      }
     });
 
     webviewView.onDidDispose(() => {
@@ -216,16 +231,19 @@ class LazyViewProvider implements vscode.WebviewViewProvider {
         this.context.extensionUri, this.out,
       );
       chatViewProvider = this.inner;
+      this.initState = 'ok';
+      this.pendingError = undefined;
       this.out.appendLine('[CodingAgent] Agent initialised');
-      // Wire up inner provider's view reference and sync UI state
+      // Hide any error banner and wire up the view
+      webviewView.webview.postMessage({ type: 'initOk' });
       this.inner.setView(webviewView);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.out.appendLine(`[CodingAgent] Provider init error: ${msg}`);
-      webviewView.webview.postMessage({
-        type: 'error',
-        error: msg + '\n\nRun "Coding Agent: Configure API Key" from the Command Palette (Ctrl+Shift+P).',
-      });
+      this.initState = 'failed';
+      this.pendingError = msg;
+      // Send error — also stored so it can be re-sent when webview 'ready' fires
+      webviewView.webview.postMessage({ type: 'initError', error: msg });
     }
   }
 
