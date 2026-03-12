@@ -73,7 +73,7 @@ export class GlobTool extends BaseTool {
     const micromatch = await import('micromatch');
     const results: { file: string; mtime: number }[] = [];
 
-    await this.walk(root, root, micromatch.default, pattern, results);
+    await this.walk(root, root, micromatch as unknown as (list: string[], pattern: string) => string[], pattern, results);
 
     return results
       .sort((a, b) => b.mtime - a.mtime)
@@ -83,7 +83,7 @@ export class GlobTool extends BaseTool {
   private async walk(
     baseDir: string,
     dir: string,
-    mm: typeof import('micromatch').default,
+    mm: (list: string[], pattern: string) => string[],
     pattern: string,
     results: { file: string; mtime: number }[],
   ): Promise<void> {

@@ -311,7 +311,7 @@ export class BitbucketAdapter implements IRepoAdapter {
 /** ── Registry ────────────────────────────────────────────────────────────── */
 export class RepoConnectorRegistry {
   private connections: Map<string, RepoConnection> = new Map();
-  private adapters: Map<RepoProvider, IRepoAdapter> = new Map([
+  private adapters: Map<RepoProvider, IRepoAdapter> = new Map<RepoProvider, IRepoAdapter>([
     ['github', new GitHubAdapter()],
     ['gitlab', new GitLabAdapter()],
     ['bitbucket', new BitbucketAdapter()],

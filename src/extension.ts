@@ -5,7 +5,7 @@ import { ContextManager } from './agent/ContextManager';
 import { MemoryManager } from './memory/MemoryManager';
 import { PermissionManager } from './permissions/PermissionManager';
 import { ProviderFactory } from './llm/ProviderFactory';
-import { ChatPanel } from './ui/ChatPanel';
+import { ChatViewProvider, buildChatHtml } from './ui/ChatPanel';
 import { RepoConnectorRegistry } from './integrations/RepoConnector';
 import { JiraRegistry } from './integrations/jira/JiraConnector';
 
@@ -15,6 +15,7 @@ let contextManager: ContextManager;
 let repoRegistry: RepoConnectorRegistry;
 let jiraRegistry: JiraRegistry;
 let statusBarItem: vscode.StatusBarItem;
+let chatViewProvider: ChatViewProvider | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Coding Agent');
@@ -41,23 +42,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.getConfiguration('codingAgent'),
   );
 
+  // ── Sidebar WebviewView provider ──────────────────────────────────────────
+  // Register eagerly so the activity bar view has content immediately.
+  // The provider lazily initialises the agent on first message.
+
+  const lazyProvider = new LazyViewProvider(
+    context, memoryManager, permissionManager,
+    contextManager, repoRegistry, jiraRegistry, outputChannel,
+  );
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(ChatViewProvider.viewId, lazyProvider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
+  );
+
   // ── Commands ──────────────────────────────────────────────────────────────
 
   context.subscriptions.push(
     vscode.commands.registerCommand('codingAgent.openChat', async () => {
-      try {
-        const agent = await getOrCreateAgent(context, memoryManager, permissionManager);
-        ChatPanel.createOrShow(
-          context.extensionUri, agent, contextManager,
-          repoRegistry, jiraRegistry, outputChannel,
-        );
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const action = await vscode.window.showErrorMessage(`Coding Agent: ${msg}`, 'Configure API Key');
-        if (action === 'Configure API Key') {
-          await vscode.commands.executeCommand('codingAgent.configureApiKey');
-        }
-      }
+      // Focus the sidebar view — this triggers resolveWebviewView if not yet open
+      await vscode.commands.executeCommand('workbench.view.extension.codingAgent');
     }),
 
     vscode.commands.registerCommand('codingAgent.configureApiKey', async () => {
@@ -80,10 +84,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const sel = editor.document.getText(editor.selection);
       const file = vscode.workspace.asRelativePath(editor.document.uri);
       const lang = editor.document.languageId;
-      await openChatWithPrompt(
-        context, memoryManager, permissionManager,
-        `Explain this ${lang} code from \`${file}\`:\n\n\`\`\`${lang}\n${sel}\n\`\`\``,
-      );
+      await openChatWithPrompt(`Explain this ${lang} code from \`${file}\`:\n\n\`\`\`${lang}\n${sel}\n\`\`\``);
     }),
 
     vscode.commands.registerCommand('codingAgent.fixSelection', async () => {
@@ -92,10 +93,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const sel = editor.document.getText(editor.selection);
       const file = vscode.workspace.asRelativePath(editor.document.uri);
       const lang = editor.document.languageId;
-      await openChatWithPrompt(
-        context, memoryManager, permissionManager,
-        `Fix any bugs or issues in this ${lang} code from \`${file}\`. Apply the fix directly to the file:\n\n\`\`\`${lang}\n${sel}\n\`\`\``,
-      );
+      await openChatWithPrompt(`Fix any bugs or issues in this ${lang} code from \`${file}\`. Apply the fix directly to the file:\n\n\`\`\`${lang}\n${sel}\n\`\`\``);
     }),
 
     vscode.commands.registerCommand('codingAgent.insertAtCursor', async () => {
@@ -109,10 +107,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         placeHolder: 'e.g. Add input validation for the email field',
       });
       if (!prompt) return;
-      await openChatWithPrompt(
-        context, memoryManager, permissionManager,
-        `In \`${file}\` at line ${line} (${lang}): ${prompt}`,
-      );
+      await openChatWithPrompt(`In \`${file}\` at line ${line} (${lang}): ${prompt}`);
     }),
   );
 
@@ -143,21 +138,99 @@ async function getOrCreateAgent(
   return agentCore;
 }
 
-async function openChatWithPrompt(
-  context: vscode.ExtensionContext,
-  memoryManager: MemoryManager,
-  permissionManager: PermissionManager,
-  prompt: string,
-): Promise<void> {
+async function openChatWithPrompt(prompt: string): Promise<void> {
   try {
-    const agent = await getOrCreateAgent(context, memoryManager, permissionManager);
-    const panel = ChatPanel.createOrShow(
-      context.extensionUri, agent, contextManager,
-      repoRegistry, jiraRegistry, outputChannel,
-    );
-    panel.sendTextToChat(prompt);
+    await vscode.commands.executeCommand('workbench.view.extension.codingAgent');
+    chatViewProvider?.sendTextToChat(prompt);
   } catch (err: unknown) {
     vscode.window.showErrorMessage(`Coding Agent: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+// ─── LazyViewProvider ─────────────────────────────────────────────────────────
+// Wraps ChatViewProvider so the agent is created only when the first message
+// is sent, not at extension activation time (which avoids blocking startup).
+
+class LazyViewProvider implements vscode.WebviewViewProvider {
+  private inner?: ChatViewProvider;
+  private currentView?: vscode.WebviewView;
+
+  constructor(
+    private context: vscode.ExtensionContext,
+    private memoryManager: MemoryManager,
+    private permissionManager: PermissionManager,
+    private ctxMgr: ContextManager,
+    private repos: RepoConnectorRegistry,
+    private jira: JiraRegistry,
+    private out: vscode.OutputChannel,
+  ) {}
+
+  resolveWebviewView(
+    webviewView: vscode.WebviewView,
+    _ctx: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken,
+  ): void {
+    this.out.appendLine('[CodingAgent] resolveWebviewView called');
+    this.currentView = webviewView;
+
+    // ① Set HTML and message handler SYNCHRONOUSLY so the panel renders and
+    //    responds immediately — before the async agent init completes.
+    const nonce = Array.from({ length: 32 }, () =>
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 62)]
+    ).join('');
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [this.context.extensionUri],
+    };
+    webviewView.webview.html = buildChatHtml(nonce);
+
+    // ② Register message handler immediately — forwards to inner once ready.
+    //    This ensures no messages are dropped during async init.
+    webviewView.webview.onDidReceiveMessage((msg) => {
+      if (this.inner) {
+        this.inner.handleMessagePublic(msg);
+      }
+      // Messages arriving before init completes are intentionally dropped;
+      // the 'ready' handshake is re-triggered via syncAll() once init finishes.
+    });
+
+    webviewView.onDidDispose(() => {
+      this.currentView = undefined;
+    });
+
+    // ③ Init agent in background — posts error into chat on failure
+    this.initAsync(webviewView);
+  }
+
+  private async initAsync(webviewView: vscode.WebviewView): Promise<void> {
+    if (this.inner) {
+      // Already initialised (e.g. panel was hidden and re-shown)
+      this.inner.setView(webviewView);
+      return;
+    }
+
+    try {
+      const agent = await getOrCreateAgent(this.context, this.memoryManager, this.permissionManager);
+      this.inner = new ChatViewProvider(
+        agent, this.ctxMgr, this.repos, this.jira,
+        this.context.extensionUri, this.out,
+      );
+      chatViewProvider = this.inner;
+      this.out.appendLine('[CodingAgent] Agent initialised');
+      // Wire up inner provider's view reference and sync UI state
+      this.inner.setView(webviewView);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.out.appendLine(`[CodingAgent] Provider init error: ${msg}`);
+      webviewView.webview.postMessage({
+        type: 'error',
+        error: msg + '\n\nRun "Coding Agent: Configure API Key" from the Command Palette (Ctrl+Shift+P).',
+      });
+    }
+  }
+
+  sendTextToChat(text: string): void {
+    this.inner?.sendTextToChat(text);
   }
 }
 

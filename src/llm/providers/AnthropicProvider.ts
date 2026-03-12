@@ -13,11 +13,17 @@ export class AnthropicProvider implements ILLMProvider {
 
   async validateConnection(): Promise<boolean> {
     try {
-      // Lightweight ping — list models (or a minimal message)
-      await this.client.models.list();
+      // Lightweight ping — send a minimal message to validate the API key
+      await this.client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'hi' }],
+      });
       return true;
-    } catch {
-      return false;
+    } catch (err: any) {
+      // 401 = bad API key; anything else = reachable but other error → treat as valid
+      if (err?.status === 401) return false;
+      return true;
     }
   }
 
@@ -32,7 +38,7 @@ export class AnthropicProvider implements ILLMProvider {
   ): AsyncIterable<StreamChunk> {
     const anthropicMessages = this.convertMessages(messages);
 
-    const stream = await this.client.messages.stream({
+    const stream = this.client.messages.stream({
       model: options.model,
       max_tokens: options.maxTokens,
       system: options.systemPrompt,
@@ -128,7 +134,7 @@ export class AnthropicProvider implements ILLMProvider {
         if (typeof msg.content === 'string') {
           result.push({ role: 'user', content: msg.content });
         } else {
-          const blocks: Anthropic.ContentBlockParam[] = (msg.content as ContentBlock[]).map(b => {
+          const blocks: (Anthropic.TextBlockParam | Anthropic.ToolResultBlockParam)[] = (msg.content as ContentBlock[]).map(b => {
             if (b.type === 'tool_result') {
               return {
                 type: 'tool_result' as const,
@@ -144,7 +150,7 @@ export class AnthropicProvider implements ILLMProvider {
         if (typeof msg.content === 'string') {
           result.push({ role: 'assistant', content: msg.content });
         } else {
-          const blocks: Anthropic.ContentBlockParam[] = (msg.content as ContentBlock[]).map(b => {
+          const blocks: (Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam)[] = (msg.content as ContentBlock[]).map(b => {
             if (b.type === 'tool_use') {
               return {
                 type: 'tool_use' as const,
